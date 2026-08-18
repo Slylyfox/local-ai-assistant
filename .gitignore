@@ -1,0 +1,17 @@
+# Local runtime data — session history, config (incl. API keys/tokens), logs, screenshots, reports
+data/
+
+# Python virtual environment
+venv/
+env/
+.venv/
+
+# Python bytecode / caches
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+
+# OS cruft
+.DS_Store
+Thumbs.db
