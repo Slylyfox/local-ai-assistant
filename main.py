@@ -12,6 +12,7 @@ import uuid
 from tkinter import colorchooser, filedialog, messagebox
 
 import customtkinter as ctk
+import requests
 
 import chat_engine
 import markdown_render
@@ -56,6 +57,9 @@ RISK_DESCRIPTIONS = {
     "memory": "This reads or writes to the assistant's persistent local memory store.",
     "report": "This saves a formatted report file locally.",
     "vuln": "This queries a public vulnerability database.",
+    "hexstrike": "This runs a real security/pentesting tool (nmap, sqlmap, hydra, metasploit, etc.) "
+    "via your HexStrike server against the specified target. Only approve this for systems "
+    "you are explicitly authorized to test.",
     "general": "This will execute a local tool.",
 }
 
@@ -392,6 +396,41 @@ class App(ctk.CTk):
         ctk.CTkButton(tab_settings, text="Save Key", command=self.save_nvd_key).pack(fill="x")
 
         ctk.CTkLabel(
+            tab_settings, text="🦂 HexStrike Integration", text_color=COLOR_WARN, anchor="w"
+        ).pack(fill="x", pady=(20, 0))
+        ctk.CTkLabel(
+            tab_settings,
+            text=(
+                "For a locally/lab-hosted HexStrike AI server (e.g. a Parrot/Kali\n"
+                "VM on your network) exposing 80+ pentesting tools. It has no\n"
+                "built-in auth — only point this at a server on your own lab\n"
+                "network, never the public internet."
+            ),
+            justify="left",
+            text_color="gray60",
+            font=("", 11),
+            anchor="w",
+        ).pack(fill="x", pady=(2, 6))
+        self.hexstrike_url_entry = ctk.CTkEntry(
+            tab_settings, placeholder_text="http://<parrot-vm-ip>:8888"
+        )
+        self.hexstrike_url_entry.insert(0, self.cfg.hexstrike_base_url)
+        self.hexstrike_url_entry.pack(fill="x", pady=(0, 4))
+        ctk.CTkButton(
+            tab_settings, text="Save & Test Connection", command=self.save_and_test_hexstrike
+        ).pack(fill="x")
+        self.hexstrike_switch_var = ctk.BooleanVar(value=self.cfg.hexstrike_enabled)
+        self.hexstrike_switch = ctk.CTkSwitch(
+            tab_settings,
+            text="Enable HexStrike tools",
+            variable=self.hexstrike_switch_var,
+            command=self.on_hexstrike_toggle,
+        )
+        self.hexstrike_switch.pack(anchor="w", pady=6)
+        self.hexstrike_status_label = ctk.CTkLabel(tab_settings, text="HexStrike: not tested", text_color="gray60")
+        self.hexstrike_status_label.pack(anchor="w")
+
+        ctk.CTkLabel(
             tab_settings, text="🧩 Plugins", text_color=COLOR_WARN, anchor="w"
         ).pack(fill="x", pady=(20, 0))
         self.plugins_switch_var = ctk.BooleanVar(value=self.cfg.plugins_enabled)
@@ -490,6 +529,8 @@ class App(ctk.CTk):
         )
         self.chat_box.grid(row=0, column=0, sticky="nsew")
         self._configure_chat_tags()
+        if self._raw_text_widget is not None:
+            self._raw_text_widget.bind("<Button-3>", self._show_chat_context_menu)
 
     def _build_input_area(self):
         frame = ctk.CTkFrame(self.main_frame, fg_color="transparent")
@@ -501,7 +542,12 @@ class App(ctk.CTk):
         ctk.CTkButton(attach_row, text="🖼 Attach Image", width=130, command=self.attach_image).pack(
             side="left", padx=(0, 6)
         )
-        ctk.CTkButton(attach_row, text="📄 Attach File", width=120, command=self.attach_file).pack(side="left")
+        ctk.CTkButton(attach_row, text="📄 Attach File", width=120, command=self.attach_file).pack(
+            side="left", padx=(0, 6)
+        )
+        ctk.CTkButton(attach_row, text="📋 Copy Last Response", width=170, command=self.copy_last_response).pack(
+            side="left"
+        )
 
         self.attachment_bar = ctk.CTkFrame(frame, fg_color="transparent")
         self.attachment_bar.grid(row=1, column=0, columnspan=2, sticky="w", pady=(0, 4))
@@ -745,6 +791,45 @@ class App(ctk.CTk):
         self._insert(f"✅ Tool Result [{name}]\n", "tool_header")
         self._insert((result or "").strip() + "\n\n", "tool")
 
+    # -------------------------------------------------------------- copy
+
+    def _copy_to_clipboard(self, text: str):
+        self.clipboard_clear()
+        self.clipboard_append(text)
+        self.update()  # flush to the OS clipboard so it survives losing focus
+
+    def copy_last_response(self):
+        for msg in reversed(self.messages):
+            if msg.get("role") == "assistant" and msg.get("content"):
+                self._copy_to_clipboard(msg["content"])
+                self.tool_status_label.configure(text="Copied last response")
+                return
+        messagebox.showinfo("Copy", "No assistant response to copy yet.")
+
+    def _copy_chat_selection(self):
+        try:
+            selected = self._raw_text_widget.get("sel.first", "sel.last")
+        except tk.TclError:
+            messagebox.showinfo("Copy", "No text selected.")
+            return
+        self._copy_to_clipboard(selected)
+        self.tool_status_label.configure(text="Copied selection")
+
+    def _copy_all_chat_text(self):
+        text = self.chat_box.get("1.0", "end-1c")
+        self._copy_to_clipboard(text)
+        self.tool_status_label.configure(text="Copied full chat log")
+
+    def _show_chat_context_menu(self, event):
+        menu = tk.Menu(self, tearoff=0)
+        menu.add_command(label="Copy Selection", command=self._copy_chat_selection)
+        menu.add_command(label="Copy Last Response", command=self.copy_last_response)
+        menu.add_command(label="Copy All", command=self._copy_all_chat_text)
+        try:
+            menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            menu.grab_release()
+
     # -------------------------------------------------------- send / recv
 
     def _on_enter(self, event):
@@ -985,6 +1070,17 @@ class App(ctk.CTk):
                 )
             else:
                 self.telegram_status_label.configure(text="Telegram: invalid token", text_color=COLOR_BAD)
+
+        elif t == "hexstrike_test_result":
+            if item["ok"]:
+                self.hexstrike_status_label.configure(
+                    text=f"HexStrike: connected (v{item['version']}, {item['tool_count']} tools)",
+                    text_color=COLOR_OK,
+                )
+            else:
+                self.hexstrike_status_label.configure(
+                    text=f"HexStrike: unreachable — {item['error']}", text_color=COLOR_BAD
+                )
 
         elif t == "docker_status":
             if item["available"]:
@@ -1507,6 +1603,37 @@ class App(ctk.CTk):
         self.cfg.nvd_api_key = self.nvd_key_entry.get().strip()
         save_config(self.cfg)
         messagebox.showinfo("Saved", "NVD API key saved.")
+
+    def save_and_test_hexstrike(self):
+        url = self.hexstrike_url_entry.get().strip()
+        self.cfg.hexstrike_base_url = url
+        save_config(self.cfg)
+
+        if not url:
+            self.hexstrike_status_label.configure(text="HexStrike: no server URL set", text_color="gray60")
+            return
+        self.hexstrike_status_label.configure(text="HexStrike: testing...", text_color="gray60")
+        threading.Thread(target=self._test_hexstrike_worker, args=(url,), daemon=True).start()
+
+    def _test_hexstrike_worker(self, url: str):
+        try:
+            resp = requests.get(f"{url.rstrip('/')}/health", timeout=10)
+            resp.raise_for_status()
+            data = resp.json()
+            self.stream_queue.put(
+                {
+                    "type": "hexstrike_test_result",
+                    "ok": True,
+                    "version": data.get("version", "?"),
+                    "tool_count": data.get("total_tools_count", "?"),
+                }
+            )
+        except Exception as exc:  # noqa: BLE001
+            self.stream_queue.put({"type": "hexstrike_test_result", "ok": False, "error": str(exc)})
+
+    def on_hexstrike_toggle(self):
+        self.cfg.hexstrike_enabled = self.hexstrike_switch_var.get()
+        save_config(self.cfg)
 
     def on_plugins_toggle(self):
         self.cfg.plugins_enabled = self.plugins_switch_var.get()

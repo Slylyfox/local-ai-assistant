@@ -42,6 +42,8 @@ class AppConfig:
     sandbox_enabled: bool = False  # route run_shell_command/run_python_script through Docker
     nvd_api_key: str = ""  # optional; raises the NVD CVE API's unauthenticated rate limit
     plugins_enabled: bool = True  # auto-load tools/plugins/*.py on startup
+    hexstrike_base_url: str = ""  # e.g. http://192.168.1.50:8888 — your HexStrike server
+    hexstrike_enabled: bool = False
     appearance_mode: str = "dark"  # dark/light/system — live-appliable
     color_theme: str = "blue"  # CTk built-in palette (blue/green/dark-blue) — restart to apply
     chat_font_family: str = "Consolas"  # live-appliable

@@ -14,7 +14,7 @@ from config import load_config as _load_config
 from .registry import ToolRegistry
 from .fallback_parser import try_parse_fallback_tool_call as _try_parse_fallback_tool_call
 from . import dev_tools, recon_tools, security_utils, vision_tools, scheduler_tools
-from . import web_search_tools, memory_tools, report_tools, cve_tools
+from . import web_search_tools, memory_tools, report_tools, cve_tools, hexstrike_tools
 from . import state, task_log, file_ingest, sandbox, plugin_loader
 
 registry = ToolRegistry()
@@ -27,6 +27,7 @@ web_search_tools.register(registry)
 memory_tools.register(registry)
 report_tools.register(registry)
 cve_tools.register(registry)
+hexstrike_tools.register(registry)
 
 loaded_plugins: list[dict] = []
 if _load_config().plugins_enabled:

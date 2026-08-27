@@ -36,6 +36,8 @@ It's built with a security-research bent (the default system prompt assumes auth
 - **Themeable** — dark/light/system appearance, color theme, chat font, and accent colors, all in Settings.
 - **Markdown-rendered chat** — code blocks, inline code, bold, headers, and lists render properly instead of as raw text.
 - **Session persistence** — every conversation is saved locally (SQLite) and browsable from a sessions list.
+- **Copy to clipboard** — one-click copy of the assistant's last reply, or right-click the chat log to copy a selection or the full transcript.
+- **HexStrike AI integration (optional)** — point it at a locally/lab-hosted [HexStrike AI](https://github.com/0x4m4/hexstrike-ai) server (e.g. a Parrot/Kali VM on your own network) to run 80+ real pentesting tools (nmap, gobuster, sqlmap, hydra, metasploit, and more) through the same confirmation flow as every other tool. HexStrike has no built-in auth — only point this at a server on your own lab network.
 
 ## Quick start
 
@@ -92,6 +94,7 @@ This is a genuinely unrestricted tool — it will run the shell commands you app
 | memory | `remember` / `recall` / `forget` / `list_memories` | Persistent cross-session fact store |
 | report | `generate_report` | Save findings as a Markdown/Word report |
 | vuln | `cve_lookup` / `cve_search` | Query the NVD vulnerability database |
+| hexstrike | `hexstrike_health` / `hexstrike_list_tools` / `hexstrike_run_tool` | Run real pentesting tools via a lab-hosted [HexStrike AI](https://github.com/0x4m4/hexstrike-ai) server (optional, off by default) |
 
 Plus anything you add yourself via `tools/plugins/` — see that folder's `README.md`.
 
