@@ -96,6 +96,10 @@ class App(ctk.CTk):
         self.tool_execution_enabled = self.cfg.tool_execution_enabled
         tools.state.tool_execution_enabled = self.tool_execution_enabled
         tools.state.sandbox_enabled = self.cfg.sandbox_enabled
+        tools.state.workspace_folder = self.cfg.workspace_folder
+        tools.state.workspace_sandboxed = self.cfg.workspace_sandboxed
+        tools.registry.set_disabled(self.cfg.disabled_tools)
+        self.tools_manager_dlg: ctk.CTkToplevel | None = None
         self._assistant_header_inserted = False
         self._assistant_block_start = None
         self._assistant_block_text = ""
@@ -128,6 +132,14 @@ class App(ctk.CTk):
         if self.cfg.telegram_enabled:
             self._start_telegram_bridge()
         self.after(30, self._poll_stream_queue)
+        self._context_label_loop()
+
+    def _context_label_loop(self):
+        try:
+            self._update_context_label()
+        except Exception:  # noqa: BLE001 - purely cosmetic
+            pass
+        self.after(1500, self._context_label_loop)
 
     # ------------------------------------------------------------------ UI
 
@@ -156,6 +168,7 @@ class App(ctk.CTk):
         tab_prompt = tabs.add("System Prompt")
         tab_settings = tabs.add("Settings")
         tab_history = tabs.add("Task History")
+        tab_help = tabs.add("Help")
 
         # --- Sessions tab
         btn_frame = ctk.CTkFrame(tab_sessions, fg_color="transparent")
@@ -285,6 +298,38 @@ class App(ctk.CTk):
             font=("", 11),
             anchor="w",
         ).pack(fill="x")
+
+        ctk.CTkLabel(
+            tab_settings, text="📁 Workspace Folder", text_color=COLOR_WARN, anchor="w"
+        ).pack(fill="x", pady=(20, 0))
+        ctk.CTkLabel(
+            tab_settings,
+            text=(
+                "Set a project folder ('📁 Folder' in the top bar) so relative\n"
+                "paths and shell commands resolve inside it, and the model sees\n"
+                "the file tree automatically."
+            ),
+            justify="left",
+            text_color="gray60",
+            font=("", 11),
+            anchor="w",
+        ).pack(fill="x", pady=(2, 4))
+        recent_row = ctk.CTkFrame(tab_settings, fg_color="transparent")
+        recent_row.pack(fill="x")
+        recent_values = self.cfg.recent_workspaces or ["(none yet)"]
+        self.recent_ws_menu = ctk.CTkOptionMenu(
+            recent_row, values=recent_values, command=self.on_recent_workspace_selected, width=180
+        )
+        self.recent_ws_menu.set(recent_values[0])
+        self.recent_ws_menu.pack(side="left", fill="x", expand=True, padx=(0, 6))
+        ctk.CTkButton(recent_row, text="Clear", width=60, command=self.clear_workspace).pack(side="left")
+        self.workspace_sandbox_var = ctk.BooleanVar(value=self.cfg.workspace_sandboxed)
+        ctk.CTkSwitch(
+            tab_settings,
+            text="Confine tools to workspace (hard sandbox)",
+            variable=self.workspace_sandbox_var,
+            command=self.on_workspace_sandbox_toggle,
+        ).pack(anchor="w", pady=6)
 
         ctk.CTkLabel(
             tab_settings, text="🐳 Docker Sandboxing", text_color=COLOR_WARN, anchor="w"
@@ -471,6 +516,71 @@ class App(ctk.CTk):
             self._append_task_log_line(line)
         ctk.CTkButton(tab_history, text="Clear Task History", command=self.clear_task_history).pack(fill="x")
 
+        # --- Help tab
+        help_box = ctk.CTkTextbox(tab_help, wrap="word", font=("", 12))
+        help_box.pack(fill="both", expand=True)
+        help_box.insert("1.0", self._help_text())
+        help_box.configure(state="disabled")
+
+    def _help_text(self) -> str:
+        return (
+            "LOCAL AI ASSISTANT — QUICK GUIDE\n"
+            "================================\n\n"
+            "TOOLS: WHAT THEY ARE\n"
+            "The model can call local 'tools' to do real work — read/write files, run\n"
+            "shell commands, search the web, scan targets, and more. Tools only run when\n"
+            "you enable them and approve each call.\n\n"
+            "ENABLING TOOL USE\n"
+            "1. Settings tab → turn ON 'Enable local tool execution'.\n"
+            "2. When the model wants to run a tool, a confirmation dialog shows the tool\n"
+            "   name, what it can do, and the exact arguments. Click Yes to allow, No to deny.\n"
+            "3. This applies everywhere, including tools triggered from Telegram.\n\n"
+            "FINDING TOOLS\n"
+            "Click '🧰 Tools' in the top bar to open Manage Tools. It lists every tool\n"
+            "grouped by category, with a description and its parameters. Use the filter box\n"
+            "to search by name or description.\n\n"
+            "ENABLING / DISABLING INDIVIDUAL TOOLS\n"
+            "In Manage Tools, flip a tool's switch off to hide it from the model completely\n"
+            "(e.g. disable run_shell_command but keep everything else). Your choices persist.\n\n"
+            "ADDING YOUR OWN TOOLS (PLUGINS)\n"
+            "Drop a .py file into the tools/plugins/ folder with a top-level\n"
+            "register(registry) function. Example:\n\n"
+            "    def my_tool(text: str) -> str:\n"
+            "        return text.upper()\n\n"
+            "    def register(registry):\n"
+            "        registry.register(\n"
+            "            'my_tool', 'Uppercase some text.',\n"
+            "            {'type':'object','properties':{'text':{'type':'string'}},\n"
+            "             'required':['text']},\n"
+            "            my_tool, category='general')\n\n"
+            "Then Settings → Plugins → 'Reload Plugins' (or restart). 'Open Plugins Folder'\n"
+            "opens the directory for you.\n\n"
+            "REMOVING A TOOL\n"
+            "Built-in tool: disable it in Manage Tools. Plugin tool: delete its .py file\n"
+            "from tools/plugins/ and reload.\n\n"
+            "WORKING IN A PROJECT FOLDER\n"
+            "Click '📁 Folder' in the top bar to set a workspace. Relative paths in file\n"
+            "tools (read_file, write_file, list_directory, search_in_files) then resolve\n"
+            "against that folder, and shell commands run inside it. The model is also given\n"
+            "a file tree of the folder automatically. Turn on 'Confine tools to workspace'\n"
+            "in Settings for a hard sandbox that blocks any path outside the folder.\n\n"
+            "SEARCHING CODE\n"
+            "The search_in_files tool greps recursively through a folder — great for finding\n"
+            "where something is defined or used across a project.\n\n"
+            "CONTEXT METER\n"
+            "The '~Nk ctx' readout in the top bar estimates how full the conversation's\n"
+            "context window is. Start a New Session when it gets large to keep responses sharp.\n\n"
+            "SWITCHING MODELS\n"
+            "Use the Model dropdown, or '⚙ Manage' to install/remove models. Models tagged\n"
+            "with tool support work most reliably for tool use.\n\n"
+            "OTHER SETTINGS (Settings tab)\n"
+            "- Docker sandboxing for shell/Python execution\n"
+            "- Telegram bot for phone access\n"
+            "- Web search (Brave) and CVE lookup (NVD) API keys\n"
+            "- HexStrike integration for lab pentesting tools\n"
+            "- Appearance: theme, font, colors\n"
+        )
+
     def _build_registered_tools_list(self, parent):
         specs = tools.registry.specs()
         ctk.CTkLabel(
@@ -509,14 +619,28 @@ class App(ctk.CTk):
         ctk.CTkButton(bar, text="⚙ Manage", width=90, command=self.open_model_manager).pack(
             side="left", padx=4, pady=8
         )
+        ctk.CTkButton(bar, text="🧰 Tools", width=80, command=self.open_tools_manager).pack(
+            side="left", padx=4, pady=8
+        )
+        ctk.CTkButton(bar, text="📁 Folder", width=90, command=self.add_folder).pack(
+            side="left", padx=4, pady=8
+        )
 
         self.conn_dot = ctk.CTkLabel(bar, text="●", text_color="gray50", font=("", 16))
-        self.conn_dot.pack(side="left", padx=(20, 2), pady=8)
+        self.conn_dot.pack(side="left", padx=(16, 2), pady=8)
         self.conn_label = ctk.CTkLabel(bar, text="Checking connection...")
         self.conn_label.pack(side="left", pady=8)
 
+        self.workspace_label = ctk.CTkLabel(bar, text="", text_color=COLOR_OK, font=("", 11))
+        self.workspace_label.pack(side="left", padx=(12, 0), pady=8)
+
         self.tool_status_label = ctk.CTkLabel(bar, text="Tools: Idle", text_color="gray60")
         self.tool_status_label.pack(side="right", padx=12, pady=8)
+
+        self.context_label = ctk.CTkLabel(bar, text="", text_color="gray60", font=("", 11))
+        self.context_label.pack(side="right", padx=4, pady=8)
+
+        self._update_workspace_label()
 
     def _build_chat_area(self):
         frame = ctk.CTkFrame(self.main_frame)
@@ -914,7 +1038,8 @@ class App(ctk.CTk):
         threading.Thread(target=self._stream_worker, args=(working_messages,), daemon=True).start()
 
     def _build_request_messages(self) -> list[dict]:
-        msgs = [{"role": "system", "content": self.cfg.system_prompt}]
+        system_content = self.cfg.system_prompt + tools.workspace.workspace_prompt_context()
+        msgs = [{"role": "system", "content": system_content}]
         msgs.extend(dict(m) for m in self.messages)
         return msgs
 
@@ -1183,6 +1308,69 @@ class App(ctk.CTk):
         canvas.create_rectangle(29, 19, 35, 39, fill="#1E1E1E", outline="")
         canvas.create_oval(29, 43, 35, 49, fill="#1E1E1E", outline="")
 
+    def _compute_confirm_diff(self, tool_name: str, args: dict):
+        """Return a list of unified-diff lines for write_file/patch_file, or
+        None for any other tool (falls back to showing raw args). Never raises
+        — a diff that can't be computed just yields None so the dialog still
+        works exactly as before."""
+        try:
+            if tool_name == "write_file":
+                filepath = args.get("filepath")
+                new_content = args.get("content", "")
+                if not filepath:
+                    return None
+                resolved = tools.workspace.resolve_path(filepath)
+                if os.path.isfile(resolved):
+                    with open(resolved, "r", encoding="utf-8", errors="replace") as f:
+                        old_content = f.read()
+                    label = f"(overwriting {filepath})"
+                else:
+                    old_content = ""
+                    label = f"(new file {filepath})"
+                return self._unified_diff(old_content, new_content, label)
+
+            if tool_name == "patch_file":
+                filepath = args.get("filepath")
+                search_str = args.get("search_str", "")
+                replace_str = args.get("replace_str", "")
+                if not filepath:
+                    return None
+                resolved = tools.workspace.resolve_path(filepath)
+                if not os.path.isfile(resolved):
+                    return None
+                with open(resolved, "r", encoding="utf-8", errors="replace") as f:
+                    old_content = f.read()
+                count = old_content.count(search_str)
+                if count != 1:
+                    # Ambiguous or missing — patch_file will refuse anyway; show
+                    # raw args so the reviewer sees exactly what was requested.
+                    return None
+                new_content = old_content.replace(search_str, replace_str, 1)
+                return self._unified_diff(old_content, new_content, f"(patching {filepath})")
+        except tools.workspace.WorkspaceError:
+            return None
+        except OSError:
+            return None
+        return None
+
+    def _unified_diff(self, old_content: str, new_content: str, label: str):
+        import difflib
+
+        diff = list(
+            difflib.unified_diff(
+                old_content.splitlines(),
+                new_content.splitlines(),
+                lineterm="",
+                n=3,
+            )
+        )
+        if not diff:
+            return [label, "(no textual changes)"]
+        # Drop difflib's default '---'/'+++' header lines (blank filenames);
+        # our own label is clearer.
+        body = [ln for ln in diff if not (ln.startswith("---") or ln.startswith("+++"))]
+        return [label, ""] + body[:400]
+
     def _show_tool_confirm_dialog(self, req: ToolConfirmRequest):
         overlay = self._create_dim_overlay()
 
@@ -1231,11 +1419,35 @@ class App(ctk.CTk):
             wraplength=500,
         ).pack(fill="x", pady=(4, 10))
 
-        ctk.CTkLabel(dlg, text="Details:", text_color="gray60", anchor="w").pack(fill="x", padx=20)
-        args_box = ctk.CTkTextbox(dlg, height=190, font=("Consolas", 12))
-        args_box.pack(fill="both", expand=True, padx=20, pady=(4, 12))
-        args_box.insert("1.0", json.dumps(req.args, indent=2))
-        args_box.configure(state="disabled")
+        diff_lines = self._compute_confirm_diff(req.name, req.args)
+        if diff_lines is not None:
+            ctk.CTkLabel(dlg, text="Changes:", text_color="gray60", anchor="w").pack(fill="x", padx=20)
+            details_box = ctk.CTkTextbox(dlg, height=190, font=("Consolas", 12))
+            details_box.pack(fill="both", expand=True, padx=20, pady=(4, 12))
+            raw = getattr(details_box, "_textbox", None)
+            if raw is not None:
+                raw.tag_config("diff_add", foreground="#7FD99A")
+                raw.tag_config("diff_del", foreground="#E88", background="#3A2020")
+                raw.tag_config("diff_meta", foreground="#7FB2E5")
+                for line in diff_lines:
+                    if line.startswith("+"):
+                        tag = "diff_add"
+                    elif line.startswith("-"):
+                        tag = "diff_del"
+                    elif line.startswith("@@") or line.startswith("(") or line.startswith("---") or line.startswith("+++"):
+                        tag = "diff_meta"
+                    else:
+                        tag = None
+                    raw.insert("end", line + "\n", (tag,) if tag else ())
+            else:
+                details_box.insert("1.0", "\n".join(diff_lines))
+            details_box.configure(state="disabled")
+        else:
+            ctk.CTkLabel(dlg, text="Details:", text_color="gray60", anchor="w").pack(fill="x", padx=20)
+            args_box = ctk.CTkTextbox(dlg, height=190, font=("Consolas", 12))
+            args_box.pack(fill="both", expand=True, padx=20, pady=(4, 12))
+            args_box.insert("1.0", json.dumps(req.args, indent=2))
+            args_box.configure(state="disabled")
 
         def cleanup():
             if overlay is not None:
@@ -1312,6 +1524,168 @@ class App(ctk.CTk):
         if self.current_session_id:
             touch_session(self.current_session_id, value)
             self._refresh_sessions_list()
+
+    # --------------------------------------------------------- workspace
+
+    def _update_workspace_label(self):
+        folder = self.cfg.workspace_folder
+        if folder:
+            name = os.path.basename(folder.rstrip("/\\")) or folder
+            lock = " 🔒" if self.cfg.workspace_sandboxed else ""
+            self.workspace_label.configure(text=f"📁 {name}{lock}")
+        else:
+            self.workspace_label.configure(text="")
+
+    def add_folder(self):
+        folder = filedialog.askdirectory(title="Add workspace folder")
+        if not folder:
+            return
+        self._set_workspace(folder)
+
+    def _set_workspace(self, folder: str):
+        self.cfg.workspace_folder = folder
+        tools.state.workspace_folder = folder
+        recent = [folder] + [p for p in self.cfg.recent_workspaces if p != folder]
+        self.cfg.recent_workspaces = recent[:8]
+        save_config(self.cfg)
+        tools.state.workspace_sandboxed = self.cfg.workspace_sandboxed
+        self._update_workspace_label()
+        if hasattr(self, "recent_ws_menu"):
+            self.recent_ws_menu.configure(values=self.cfg.recent_workspaces)
+            self.recent_ws_menu.set(folder)
+        self._append_chat_block("system", f"Workspace set to: {folder}")
+        tools.task_log.log_event(f"[workspace] set to {folder}")
+
+    def clear_workspace(self):
+        self.cfg.workspace_folder = ""
+        tools.state.workspace_folder = ""
+        save_config(self.cfg)
+        self._update_workspace_label()
+        self._append_chat_block("system", "Workspace cleared.")
+
+    def _estimate_context_usage(self):
+        """Rough token estimate (~4 chars/token) of the current conversation
+        plus system prompt and workspace context. Approximate — Ollama doesn't
+        expose the live prompt token count until after a generation."""
+        total_chars = len(self.cfg.system_prompt) + len(tools.workspace.workspace_prompt_context())
+        for m in self.messages:
+            total_chars += len(str(m.get("content", "")))
+        return total_chars // 4
+
+    def _update_context_label(self):
+        approx_tokens = self._estimate_context_usage()
+        if approx_tokens >= 1000:
+            self.context_label.configure(text=f"~{approx_tokens // 1000}k ctx")
+        else:
+            self.context_label.configure(text=f"~{approx_tokens} ctx")
+
+    # ------------------------------------------------------- tools manager
+
+    def open_tools_manager(self):
+        if self.tools_manager_dlg is not None:
+            try:
+                self.tools_manager_dlg.lift()
+                self.tools_manager_dlg.focus_force()
+                return
+            except Exception:  # noqa: BLE001 - stale reference, rebuild
+                self.tools_manager_dlg = None
+
+        dlg = ctk.CTkToplevel(self)
+        self.tools_manager_dlg = dlg
+        dlg.title("Manage Tools")
+        dlg.geometry("680x640")
+        dlg.attributes("-topmost", True)
+
+        def on_dlg_close():
+            self.tools_manager_dlg = None
+            dlg.destroy()
+
+        dlg.protocol("WM_DELETE_WINDOW", on_dlg_close)
+
+        header = ctk.CTkFrame(dlg, fg_color="transparent")
+        header.pack(fill="x", padx=12, pady=(12, 4))
+        ctk.CTkLabel(
+            header,
+            text="Toggle individual tools on/off. Disabled tools are hidden from the model entirely.\n"
+            "The master 'Enable local tool execution' switch in Settings still governs everything.",
+            justify="left",
+            text_color="gray60",
+            font=("", 11),
+            anchor="w",
+        ).pack(side="left", fill="x", expand=True)
+
+        self.tools_search_entry = ctk.CTkEntry(dlg, placeholder_text="Filter tools by name or description...")
+        self.tools_search_entry.pack(fill="x", padx=12, pady=(0, 4))
+        self.tools_search_entry.bind("<KeyRelease>", lambda e: self._render_tools_manager())
+
+        self.tools_manager_frame = ctk.CTkScrollableFrame(dlg, label_text="")
+        self.tools_manager_frame.pack(fill="both", expand=True, padx=12, pady=(0, 12))
+
+        self._tool_switch_vars = {}
+        self._render_tools_manager()
+
+    def _render_tools_manager(self):
+        for w in self.tools_manager_frame.winfo_children():
+            w.destroy()
+        filt = self.tools_search_entry.get().strip().lower()
+
+        by_cat: dict[str, list] = {}
+        for spec in tools.registry.specs():
+            if filt and filt not in spec.name.lower() and filt not in spec.description.lower():
+                continue
+            by_cat.setdefault(spec.category, []).append(spec)
+
+        if not by_cat:
+            ctk.CTkLabel(self.tools_manager_frame, text="No tools match that filter.", text_color="gray60").pack(
+                anchor="w", pady=8
+            )
+            return
+
+        for category in sorted(by_cat):
+            ctk.CTkLabel(
+                self.tools_manager_frame, text=category.upper(), font=("", 12, "bold"), text_color=COLOR_WARN, anchor="w"
+            ).pack(fill="x", pady=(10, 2))
+            for spec in sorted(by_cat[category], key=lambda s: s.name):
+                self._build_tool_row(spec)
+
+    def _build_tool_row(self, spec):
+        row = ctk.CTkFrame(self.tools_manager_frame, fg_color="#2A2A2A", corner_radius=6)
+        row.pack(fill="x", pady=2)
+
+        top = ctk.CTkFrame(row, fg_color="transparent")
+        top.pack(fill="x", padx=8, pady=(6, 0))
+        ctk.CTkLabel(top, text=spec.name, font=("Consolas", 13, "bold"), anchor="w").pack(side="left")
+
+        var = ctk.BooleanVar(value=tools.registry.is_enabled(spec.name))
+        self._tool_switch_vars[spec.name] = var
+        ctk.CTkSwitch(
+            top, text="", width=40, variable=var, command=lambda n=spec.name: self._toggle_tool(n)
+        ).pack(side="right")
+
+        params = spec.parameters.get("properties", {})
+        param_str = ", ".join(params.keys()) if params else "no parameters"
+        ctk.CTkLabel(
+            row,
+            text=f"{spec.description}\nParameters: {param_str}",
+            justify="left",
+            wraplength=580,
+            text_color="gray70",
+            font=("", 11),
+            anchor="w",
+        ).pack(fill="x", padx=8, pady=(0, 6))
+
+    def _toggle_tool(self, name: str):
+        var = self._tool_switch_vars.get(name)
+        if var is None:
+            return
+        disabled = set(tools.registry.disabled_names())
+        if var.get():
+            disabled.discard(name)
+        else:
+            disabled.add(name)
+        tools.registry.set_disabled(disabled)
+        self.cfg.disabled_tools = sorted(disabled)
+        save_config(self.cfg)
 
     # ------------------------------------------------------ model manager
 
@@ -1674,6 +2048,16 @@ class App(ctk.CTk):
         tools.state.sandbox_enabled = self.cfg.sandbox_enabled
         save_config(self.cfg)
         self._refresh_sandbox_status()
+
+    def on_recent_workspace_selected(self, value: str):
+        if value and value != "(none yet)" and os.path.isdir(value):
+            self._set_workspace(value)
+
+    def on_workspace_sandbox_toggle(self):
+        self.cfg.workspace_sandboxed = self.workspace_sandbox_var.get()
+        tools.state.workspace_sandboxed = self.cfg.workspace_sandboxed
+        save_config(self.cfg)
+        self._update_workspace_label()
 
     def _refresh_sandbox_status(self):
         self.sandbox_status_label.configure(text="Checking Docker...", text_color="gray60")

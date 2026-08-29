@@ -51,6 +51,10 @@ class AppConfig:
     accent_color: str = "#E0A030"  # restart to apply
     ok_color: str = "#2E9E44"  # restart to apply
     bad_color: str = "#B0413E"  # restart to apply
+    workspace_folder: str = ""  # active project folder ("Add Folder"); empty = none
+    workspace_sandboxed: bool = False  # confine file/shell tools to the workspace
+    recent_workspaces: list = field(default_factory=list)  # most-recent-first paths
+    disabled_tools: list = field(default_factory=list)  # tool names switched off in Manage Tools
 
     def to_dict(self) -> dict:
         return asdict(self)

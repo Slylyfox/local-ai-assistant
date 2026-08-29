@@ -10,3 +10,11 @@ interactive tool calls.
 
 tool_execution_enabled = False
 sandbox_enabled = False
+
+# Active workspace folder (see tools/workspace.py). Empty = no workspace: tools
+# behave exactly as before. When set, relative paths resolve against it.
+workspace_folder = ""
+# When True, file/shell tools refuse any path resolving outside the workspace
+# (hard sandbox). When False, the workspace is just a convenience root and
+# absolute paths anywhere still work.
+workspace_sandboxed = False

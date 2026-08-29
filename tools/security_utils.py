@@ -7,7 +7,7 @@ import json
 import urllib.parse
 from typing import Optional
 
-from . import sandbox, state
+from . import sandbox, state, workspace
 from .common import run_command
 
 SUPPORTED_OPS = (
@@ -26,11 +26,18 @@ SUPPORTED_OPS = (
 
 def run_shell_command(command: str) -> str:
     """Execute a shell/terminal command on the local machine and return stdout/stderr."""
+    # A workspace, when set, is the command's working directory. Under hard
+    # sandbox with no workspace there's no safe cwd to confine to, so refuse.
+    if state.workspace_sandboxed and not workspace.has_workspace():
+        return "Workspace sandboxing is on but no workspace folder is set; refusing to run a shell command."
+    cwd = workspace.workspace_cwd()
+
     if state.sandbox_enabled:
         if sandbox.docker_available():
             return sandbox.run_in_sandbox(command, mode="shell")
-        return "⚠ Docker unavailable, ran directly on host instead:\n" + run_command(command, shell=True)
-    return run_command(command, shell=True)
+        prefix = "⚠ Docker unavailable, ran directly on host instead:\n"
+        return prefix + run_command(command, shell=True, cwd=cwd)
+    return run_command(command, shell=True, cwd=cwd)
 
 
 def _pad_b64(s: str) -> str:

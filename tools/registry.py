@@ -22,6 +22,10 @@ class ToolSpec:
 class ToolRegistry:
     def __init__(self):
         self._tools: dict[str, ToolSpec] = {}
+        # Names the user has switched off individually in Manage Tools. These
+        # stay registered (so they still appear in the browser) but are hidden
+        # from the model's schema and refused if somehow called anyway.
+        self._disabled: set[str] = set()
 
     def register(
         self,
@@ -45,6 +49,20 @@ class ToolRegistry:
     def specs(self) -> list[ToolSpec]:
         return list(self._tools.values())
 
+    # --- per-tool enable/disable (Manage Tools) ---
+
+    def set_disabled(self, names) -> None:
+        self._disabled = {n for n in names if n in self._tools}
+
+    def is_enabled(self, name: str) -> bool:
+        return name not in self._disabled
+
+    def disabled_names(self) -> set:
+        return set(self._disabled)
+
+    def enabled_specs(self) -> list[ToolSpec]:
+        return [s for s in self._tools.values() if s.name not in self._disabled]
+
     def get_schemas(self) -> list[dict]:
         return [
             {
@@ -56,11 +74,14 @@ class ToolRegistry:
                 },
             }
             for spec in self._tools.values()
+            if spec.name not in self._disabled
         ]
 
     def call(self, name: str, args: dict) -> str:
         if name not in self._tools:
             return f"Unknown tool: {name}"
+        if name in self._disabled:
+            return f"Tool '{name}' is disabled in Manage Tools."
         spec = self._tools[name]
         try:
             return spec.func(**(args or {}))

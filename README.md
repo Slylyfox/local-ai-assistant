@@ -25,6 +25,12 @@ It's built with a security-research bent (the default system prompt assumes auth
 
 - **Any local model** — dropdown to switch models mid-conversation without losing context; built-in model manager to search, pull, and delete Ollama models from inside the app.
 - **Real tool-calling, real safety** — 24 built-in tools (below) the model can invoke, each gated by a master on/off toggle and a per-call confirmation dialog styled after Windows UAC. Works even with models that don't support Ollama's native tool-calling API, via a JSON fallback protocol.
+- **Workspace folders** — point it at a project folder ("📁 Folder") and it works inside it like a CLI coding agent: relative paths in file/search tools resolve against it, shell commands run in it, and the model is handed a file tree of the project automatically. Optional hard-sandbox mode confines all file/shell access to the folder.
+- **Manage Tools** — a browser (like Manage Models) listing every tool by category with its description and parameters, plus a switch to enable/disable individual tools — turn off `run_shell_command` specifically while leaving the rest on, for example.
+- **Recursive code search** — `search_in_files` greps across a whole project to find where something is defined or used.
+- **In-app Help guide** — a Help tab covering tool usage, the confirmation model, and adding/finding/removing tools.
+- **Diff preview on write** — when the model wants to `write_file` or `patch_file` an existing file, the confirmation dialog shows a colored before/after diff instead of raw content, so you see exactly what changes before approving.
+- **Context meter** — a top-bar readout estimating how full the current conversation's context window is.
 - **Vision** — attach images, or let the model take its own screenshot with `capture_screen` and see it.
 - **File ingestion** — attach `.txt`, `.log`, `.py`, `.json`, `.csv`, `.pdf`, or `.pcap` files and their content gets folded into the prompt automatically.
 - **Persistent memory** — a `remember`/`recall`/`forget` tool store that survives across sessions and restarts, separate from any one conversation's history.
@@ -79,6 +85,7 @@ This is a genuinely unrestricted tool — it will run the shell commands you app
 | dev | `patch_file` | Replace one unique occurrence of text in a file |
 | dev | `run_python_script` | Run a local script or inline Python |
 | dev | `list_directory` | List a directory's contents |
+| dev | `search_in_files` | Recursively grep a folder for text (find definitions/usages) |
 | recon | `nmap_scan` | Run an Nmap scan against a target |
 | recon | `parse_nmap_file` | Parse a saved `.nmap`/`.xml` Nmap output file |
 | recon | `inspect_web_target` | Fetch HTTP headers and TLS cert info for a URL |
